@@ -1,52 +1,83 @@
-from scipy import io
 import numpy as np
+from scipy.io import loadmat
 
-# 加载 mnist_data.mat 文件
-file_path = 'mnist_data.mat'
-data = io.loadmat(file_path)
 
-# 打印文件中所有变量的键
-print("Keys in the loaded .mat file:")
-print(data.keys())
+def gaussian_log_pdf(x, mean, cov_inv, log_det_cov):
+    diff = x - mean
+    dim = mean.shape[0]
+    exponent = -0.5 * np.sum(diff @ cov_inv * diff, axis=1)
+    log_denominator = 0.5 * (dim * np.log(2 * np.pi) + log_det_cov)
+    return exponent - log_denominator
 
-# 提取训练和测试数据
-trX = data.get('trX')  # 训练集
-trY = data.get('trY')  # 训练标签
-tsX = data.get('tsX')  # 测试集
-tsY = data.get('tsY')  # 测试标签
+file_path = "mnist_data.mat"
+data = loadmat(file_path)
+trX = data['trX']
+trY = data['trY']
+tsX = data['tsX']
+tsY = data['tsY']
 
-# 检查数据形状
-print("\nShapes of the datasets:")
-print(f"trX shape: {trX.shape}")
-print(f"trY shape: {trY.shape}")
-print(f"tsX shape: {tsX.shape}")
-print(f"tsY shape: {tsY.shape}")
+group_0_mask = (trY == 0).flatten()
+group_1_mask = (trY == 1).flatten()
+group_0_trX = trX[group_0_mask]
+group_1_trX = trX[group_1_mask]
 
-# 将trX分成两组数据， 一组仅包含trY = 0， 另一组仅包含trY = 1,并打印
-group_0_mask = (trY == 0)  # 训练标签为 0 的样本
-group_1_mask = (trY == 1)  # 训练标签为 1 的样本
+mean_group_0 = np.mean(group_0_trX, axis=0)
+cov_group_0 = np.cov(group_0_trX, rowvar=False)
+mean_group_1 = np.mean(group_1_trX, axis=0)
+cov_group_1 = np.cov(group_1_trX, rowvar=False)
 
-group_0_trX = trX[group_0_mask.flatten()]  # 获取标签为 0 的样本
+# 初始化正则化常数
+epsilon = 1e-6
 
-group_1_trX = trX[group_1_mask.flatten()]  # 获取标签为 1 的样本
+# 正则化协方差矩阵（避免奇异）
+cov_group_0 += epsilon * np.eye(cov_group_0.shape[0])
+cov_group_1 += epsilon * np.eye(cov_group_1.shape[0])
 
-# 打印分组后的数据形状
-print("\nShapes of the two groups:")
-print(f"Group with trY = 0: {group_0_trX}")
-print(f"Group with trY = 1: {group_1_trX}")
+# 检查并处理行列式为零的情况
+det_cov_0 = np.linalg.det(cov_group_0)
+det_cov_1 = np.linalg.det(cov_group_1)
+if np.isclose(det_cov_0, 0):
+    print("Warning: Det(cov_group_0) is near zero.")
+    det_cov_0 = epsilon  # 替代为一个小值
 
-# 计算两组数据的均值和协方差矩阵
-mean_group_0 = np.mean(group_0_trX, axis=0)  # 计算 trY = 0 的均值
-cov_group_0 = np.cov(group_0_trX, rowvar=False)  # 计算 trY = 0 的协方差矩阵
+if np.isclose(det_cov_1, 0):
+    print("Warning: Det(cov_group_1) is near zero.")
+    det_cov_1 = epsilon  # 替代为一个小值
 
-mean_group_1 = np.mean(group_1_trX, axis=0)  # 计算 trY = 1 的均值
-cov_group_1 = np.cov(group_1_trX, rowvar=False)  # 计算 trY = 1 的协方差矩阵
+# 计算对数行列式
+log_det_cov_0 = np.log(det_cov_0)
+log_det_cov_1 = np.log(det_cov_1)
 
-# 打印均值和协方差矩阵
-print("\nMean and Covariance of Group with trY = 0:")
-print(f"Mean: {mean_group_0}")
-print(f"Covariance Matrix: {cov_group_0}")
+# 计算逆矩阵（或伪逆）
+try:
+    cov_inv_0 = np.linalg.inv(cov_group_0)
+except np.linalg.LinAlgError:
+    print("Warning: Using pseudo-inverse for cov_group_0")
+    cov_inv_0 = np.linalg.pinv(cov_group_0)
 
-print("\nMean and Covariance of Group with trY = 1:")
-print(f"Mean: {mean_group_1}")
-print(f"Covariance Matrix: {cov_group_1}")
+try:
+    cov_inv_1 = np.linalg.inv(cov_group_1)
+except np.linalg.LinAlgError:
+    print("Warning: Using pseudo-inverse for cov_group_1")
+    cov_inv_1 = np.linalg.pinv(cov_group_1)
+
+
+prior_0 = len(group_0_trX) / len(trX)
+prior_1 = len(group_1_trX) / len(trX)
+
+log_prior_0 = np.log(prior_0)
+log_prior_1 = np.log(prior_1)
+
+log_posterior_0 = log_prior_0 + gaussian_log_pdf(tsX, mean_group_0, cov_inv_0, log_det_cov_0)
+log_posterior_1 = log_prior_1 + gaussian_log_pdf(tsX, mean_group_1, cov_inv_1, log_det_cov_1)
+
+predictions = (log_posterior_1 > log_posterior_0).astype(int)
+
+print("\nTrue labels (tsY):")
+print(tsY.flatten())
+
+print("\nPredicted labels:")
+print(predictions)
+
+accuracy = np.mean(predictions == tsY.flatten()) * 100
+print(f"\nAccuracy: {accuracy:.2f}%")
