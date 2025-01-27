@@ -29,14 +29,15 @@ def logistic_regression(X, y, alpha, num_iters, TX, TY):
         predictions = np.array(predictions).flatten()
         TY = TY.flatten()
 
+        # check current accuracy 
         accuracy = np.mean(predictions == TY) * 100 
         print(f"Iteration {i+1}/{num_iters}, Accuracy of Logistic Regression: {accuracy:.2f}%")
 
         print("Predictions (first 20):", predictions[:20].flatten())
         print("True labels (first 20):", TY[:20].flatten())
 
-        print("Predictions (last 20):", predictions[-20:].flatten())  # 打印最后 20 个预测值
-        print("True labels (last 20):", TY[-20:].flatten())          # 打印最后 20 个真实值
+        print("Predictions (last 20):", predictions[-20:].flatten())
+        print("True labels (last 20):", TY[-20:].flatten())
     return theta
 
 
@@ -52,6 +53,7 @@ tsX = np.hstack((np.ones((tsX.shape[0], 1)), tsX))
 
 trY = trY.reshape(-1, 1)
 
+# shuffle train data to make the model learn process smooth
 shuffle_indices = np.random.permutation(trX.shape[0])
 trX = trX[shuffle_indices]
 trY = trY[shuffle_indices]
